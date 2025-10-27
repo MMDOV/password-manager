@@ -5,6 +5,13 @@ use aes_gcm::{
 use argon2::Argon2;
 use rand::rand_core::{OsRng, TryRngCore};
 
+// NOTE: take a master password and create a vault with that password
+// that vault is a file inside that file theres our salt, nonce and the ciphered text
+// all the new passwords are being added to that vault
+// TODO: needs some sort of ui
+// TODO: needs the ability to generate strong passwords for user to use
+// TODO: still need to do the main loop what we have does nothing basically
+// TODO: add more todos
 fn main() {
     let passwords = b"somethingrandom for testing";
     let salt = b"example salt";
