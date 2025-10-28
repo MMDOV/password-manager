@@ -6,6 +6,8 @@ use argon2::{Algorithm, Argon2, Params, Version};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use rand::rand_core::{OsRng, TryRngCore};
 use serde::{Deserialize, Serialize};
+use std::io::prelude::*;
+use std::{fs::File, str::FromStr};
 
 // NOTE: take a master password and create a vault with that password
 // that vault is a file inside that file theres our salt, nonce and the ciphered text
@@ -14,7 +16,7 @@ use serde::{Deserialize, Serialize};
 // TODO: needs the ability to generate strong passwords for user to use
 // TODO: still need to do the main loop what we have does nothing basically
 // TODO: add more todos
-//
+// FIX: add error handling everyting is panicking right now
 fn main() {
     let password = b"somethingrandom for testing";
     let mut salt = [0u8; 32];
@@ -25,13 +27,15 @@ fn main() {
         time_cost: 2,
         parallelism: 1,
     };
-    let mut vault = Vault::new(argon2_params);
+    let name = String::from_str("mamad").unwrap();
+    let mut vault = Vault::new(name, argon2_params);
     let vault_key = vault.derive_vault_key(password);
 
     vault.encrypt_data(vault_key, b"some random text");
     let plaintext = vault.decrypt_data(vault_key);
+    vault.savetofile();
 
-    assert_eq!(&plaintext, b"this is a random password")
+    assert_eq!(&plaintext, b"some random text")
 }
 
 #[derive(Serialize, Deserialize)]
@@ -50,14 +54,16 @@ struct EncryptionData {
 
 #[derive(Serialize, Deserialize)]
 pub struct Vault {
+    name: String,
     version: u8,
     argon2: Argon2Params,
     encryption: EncryptionData,
 }
 
 impl Vault {
-    pub fn new(argon2_params: Argon2Params) -> Vault {
+    pub fn new(name: String, argon2_params: Argon2Params) -> Vault {
         Vault {
+            name: name,
             version: 1,
             argon2: argon2_params,
             encryption: EncryptionData {
@@ -65,6 +71,12 @@ impl Vault {
                 ciphertext: String::new(),
             },
         }
+    }
+
+    pub fn new_from_file(file_name: String) -> Vault {
+        let file = File::open(file_name).unwrap();
+        let vault: Vault = serde_json::from_reader(file).unwrap();
+        vault
     }
 
     pub fn derive_vault_key(&self, master_password: &[u8]) -> [u8; 32] {
@@ -107,5 +119,16 @@ impl Vault {
         cipher
             .decrypt(nonce.as_slice().into(), ciphertext.as_ref())
             .unwrap()
+    }
+
+    pub fn savetofile(&self) {
+        let json = serde_json::to_string_pretty(&self).unwrap();
+
+        println!("{json}");
+        let file_name = format!("{}.vault", self.name.as_str());
+
+        let mut file = File::create(file_name).unwrap();
+
+        file.write_all(json.as_ref()).unwrap();
     }
 }
