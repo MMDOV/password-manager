@@ -6,8 +6,8 @@ use argon2::{Algorithm, Argon2, Params, Version};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use rand::rand_core::{OsRng, TryRngCore};
 use serde::{Deserialize, Serialize};
+use std::fs::File;
 use std::io::prelude::*;
-use std::{fs::File, str::FromStr};
 
 // NOTE: take a master password and create a vault with that password
 // that vault is a file inside that file theres our salt, nonce and the ciphered text
@@ -19,40 +19,53 @@ use std::{fs::File, str::FromStr};
 // FIX: add error handling everyting is panicking right now
 fn main() {
     let password = b"somethingrandom for testing";
-    let mut salt = [0u8; 32];
-    OsRng.try_fill_bytes(&mut salt).unwrap();
-    let argon2_params = Argon2Params {
-        salt: STANDARD.encode(salt),
-        mem_cost: 19 * 1024,
-        time_cost: 2,
-        parallelism: 1,
-    };
-    let name = String::from_str("mamad").unwrap();
-    let mut vault = Vault::new(name, argon2_params);
+    let mut vault = Vault::new("mamad");
     let vault_key = vault.derive_vault_key(password);
 
-    vault.encrypt_data(vault_key, b"some random text");
-    let plaintext = vault.decrypt_data(vault_key);
-    vault.savetofile();
+    vault.encrypt_data(&vault_key, b"some random text");
+    let plaintext = vault.decrypt_data(&vault_key);
+    vault.save_to_file();
 
     assert_eq!(&plaintext, b"some random text")
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct Argon2Params {
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Argon2Params {
     salt: String,
     mem_cost: u32,
     time_cost: u32,
     parallelism: u32,
 }
 
-#[derive(Serialize, Deserialize)]
+impl Default for Argon2Params {
+    fn default() -> Self {
+        let mut salt = [0u8; 32];
+        OsRng.try_fill_bytes(&mut salt).unwrap();
+        Self {
+            salt: STANDARD.encode(salt),
+            mem_cost: 19 * 1024,
+            time_cost: 2,
+            parallelism: 1,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct EncryptionData {
     nonce: String,
     ciphertext: String,
 }
 
-#[derive(Serialize, Deserialize)]
+impl Default for EncryptionData {
+    fn default() -> Self {
+        Self {
+            nonce: String::new(),
+            ciphertext: String::new(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Vault {
     name: String,
     version: u8,
@@ -61,15 +74,12 @@ pub struct Vault {
 }
 
 impl Vault {
-    pub fn new(name: String, argon2_params: Argon2Params) -> Vault {
-        Vault {
-            name: name,
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
             version: 1,
-            argon2: argon2_params,
-            encryption: EncryptionData {
-                nonce: String::new(),
-                ciphertext: String::new(),
-            },
+            argon2: Argon2Params::default(),
+            encryption: EncryptionData::default(),
         }
     }
 
@@ -102,8 +112,8 @@ impl Vault {
         output_key
     }
 
-    pub fn encrypt_data(&mut self, vault_key: [u8; 32], plaintext: &[u8]) {
-        let cipher = Aes256Gcm::new(&vault_key.into());
+    pub fn encrypt_data(&mut self, vault_key: &[u8], plaintext: &[u8]) {
+        let cipher = Aes256Gcm::new(vault_key.into());
         let nonce = Aes256Gcm::generate_nonce(&mut aes_gcm::aead::OsRng);
 
         let ciphertext = cipher.encrypt(&nonce, plaintext.as_ref()).unwrap();
@@ -112,8 +122,8 @@ impl Vault {
         self.encryption.ciphertext = STANDARD.encode(ciphertext);
     }
 
-    pub fn decrypt_data(&self, vault_key: [u8; 32]) -> Vec<u8> {
-        let cipher = Aes256Gcm::new(&vault_key.into());
+    pub fn decrypt_data(&self, vault_key: &[u8]) -> Vec<u8> {
+        let cipher = Aes256Gcm::new(vault_key.into());
         let nonce = STANDARD.decode(&self.encryption.nonce).unwrap();
         let ciphertext = STANDARD.decode(&self.encryption.ciphertext).unwrap();
         cipher
@@ -121,7 +131,7 @@ impl Vault {
             .unwrap()
     }
 
-    pub fn savetofile(&self) {
+    pub fn save_to_file(&self) {
         let json = serde_json::to_string_pretty(&self).unwrap();
 
         println!("{json}");
