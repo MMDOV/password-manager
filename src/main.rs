@@ -1,4 +1,8 @@
 mod vault;
+use color_eyre::Result;
+use crossterm::event::{self, Event};
+use passwords::PasswordGenerator;
+use ratatui::{DefaultTerminal, Frame};
 use vault::Vault;
 
 // NOTE: take a master password and create a vault with that password
@@ -9,10 +13,25 @@ use vault::Vault;
 // TODO: still need to do the main loop what we have does nothing basically
 // TODO: add more todos
 // FIX: add error handling everyting is panicking right now
-fn main() {
-    let password = b"somethingrandom for testing";
+fn main() -> Result<()> {
+    color_eyre::install()?;
+    let terminal = ratatui::init();
+    let result = run(terminal);
+    ratatui::restore();
+    let pg = PasswordGenerator {
+        length: 15,
+        numbers: true,
+        lowercase_letters: true,
+        uppercase_letters: true,
+        symbols: true,
+        spaces: false,
+        exclude_similar_characters: false,
+        strict: true,
+    };
+    let password = pg.generate_one().unwrap();
+    println!("{password}");
     let mut vault = Vault::new("mamad");
-    let vault_key = vault.derive_vault_key(password).unwrap();
+    let vault_key = vault.derive_vault_key(password.as_ref()).unwrap();
 
     vault
         .encrypt_data(&vault_key, b"some random text")
@@ -20,5 +39,18 @@ fn main() {
     let plaintext = vault.decrypt_data(&vault_key).unwrap();
     vault.save_to_file().unwrap();
 
-    assert_eq!(&plaintext, b"some random text")
+    assert_eq!(&plaintext, b"some random text");
+    result
+}
+fn run(mut terminal: DefaultTerminal) -> Result<()> {
+    loop {
+        terminal.draw(render)?;
+        if matches!(event::read()?, Event::Key(_)) {
+            break Ok(());
+        }
+    }
+}
+
+fn render(frame: &mut Frame) {
+    frame.render_widget("hello world", frame.area());
 }
