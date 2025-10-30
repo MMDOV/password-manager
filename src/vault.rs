@@ -93,7 +93,8 @@ impl Vault {
     }
 
     pub fn new_from_file(file_name: String) -> Result<Vault, VaultError> {
-        let file = File::open(file_name)?;
+        let file_path = format!("{}.vault", file_name);
+        let file = File::open(file_path)?;
         let vault: Vault = serde_json::from_reader(file)?;
         Ok(vault)
     }
