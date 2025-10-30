@@ -6,8 +6,11 @@ use argon2::{Algorithm, Argon2, Params, Version};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use rand::rand_core::{OsRng, TryRngCore};
 use serde::{Deserialize, Serialize};
-use std::fs::File;
 use std::io::{self, prelude::*};
+use std::{
+    fs::{self, File},
+    string::FromUtf8Error,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum VaultError {
@@ -20,11 +23,17 @@ pub enum VaultError {
     #[error("Serde JSON error: {0}")]
     Serde(#[from] serde_json::Error),
 
+    #[error("Utf8 error: {0}")]
+    Utf8Error(#[from] FromUtf8Error),
+
     #[error("Argon2 error: {0}")]
     Argon2(String),
 
     #[error("AEAD encryption/decryption error")]
     Aead,
+
+    #[error("dublicate entry: {0}")]
+    DuplicateEntry(String),
 }
 impl From<argon2::Error> for VaultError {
     fn from(e: argon2::Error) -> Self {
@@ -36,6 +45,28 @@ impl From<aes_gcm::aead::Error> for VaultError {
     fn from(_: aes_gcm::aead::Error) -> Self {
         VaultError::Aead
     }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PasswordEntry {
+    name: String,
+    username: String,
+    password: String,
+}
+
+impl PasswordEntry {
+    pub fn new(name: &str, username: &str, password: &str) -> PasswordEntry {
+        PasswordEntry {
+            name: name.to_string(),
+            username: username.to_string(),
+            password: password.to_string(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PasswordList {
+    passwords: Vec<PasswordEntry>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -99,6 +130,62 @@ impl Vault {
         Ok(vault)
     }
 
+    pub fn delete(&self, master_password: &[u8]) -> Result<(), VaultError> {
+        let vault_key = self.derive_vault_key(&master_password)?;
+        self.decrypt_data(&vault_key)?;
+
+        let file_path = format!("{}.vault", self.name.as_str());
+        fs::remove_file(&file_path)?;
+        Ok(())
+    }
+
+    pub fn list(&self, master_password: &[u8]) -> Result<PasswordList, VaultError> {
+        let vault_key = self.derive_vault_key(&master_password)?;
+        let plane_text = String::from_utf8(self.decrypt_data(&vault_key)?)?;
+        let password_list: PasswordList = serde_json::from_str(&plane_text)?;
+        Ok(password_list)
+    }
+
+    pub fn add_entry(
+        &mut self,
+        master_password: &[u8],
+        password_entry: PasswordEntry,
+    ) -> Result<(), VaultError> {
+        let mut password_list = self.list(&master_password)?;
+        if password_list
+            .passwords
+            .iter()
+            .any(|entry| entry.name == password_entry.name)
+        {
+            return Err(VaultError::DuplicateEntry(password_entry.name.clone()));
+        }
+        password_list.passwords.push(password_entry);
+        self.encrypt_data(
+            &self.derive_vault_key(&master_password)?,
+            serde_json::to_string_pretty(&password_list)?.as_bytes(),
+        )?;
+        self.save_to_file()?;
+
+        Ok(())
+    }
+    pub fn remove_entry(&mut self, master_password: &[u8], name: &str) -> Result<(), VaultError> {
+        let mut password_list = self.list(&master_password)?;
+        if let Some(index) = password_list
+            .passwords
+            .iter()
+            .position(|entry| entry.name == name)
+        {
+            password_list.passwords.remove(index);
+            self.encrypt_data(
+                &self.derive_vault_key(&master_password)?,
+                serde_json::to_string_pretty(&password_list)?.as_bytes(),
+            )?;
+            self.save_to_file()?;
+        }
+
+        Ok(())
+    }
+
     pub fn derive_vault_key(&self, master_password: &[u8]) -> Result<[u8; 32], VaultError> {
         let argon2_params = &self.argon2;
         let params = Params::new(
@@ -142,7 +229,6 @@ impl Vault {
     pub fn save_to_file(&self) -> Result<(), VaultError> {
         let json = serde_json::to_string_pretty(&self)?;
 
-        println!("{json}");
         let file_name = format!("{}.vault", self.name.as_str());
 
         let mut file = File::create(file_name)?;

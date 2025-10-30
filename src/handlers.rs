@@ -1,5 +1,6 @@
 use crate::cli::{Commands, PasswordCommands, VaultCommands};
-use crate::vault::Vault;
+use crate::vault::{PasswordEntry, Vault};
+use passwords::PasswordGenerator;
 
 pub fn handle_command(command: Commands) {
     match command {
@@ -10,7 +11,7 @@ pub fn handle_command(command: Commands) {
 
 fn handle_vault(command: VaultCommands) {
     match command {
-        VaultCommands::Add {
+        VaultCommands::Create {
             vault_name,
             master_pass,
         } => {
@@ -27,22 +28,23 @@ fn handle_vault(command: VaultCommands) {
             vault_name,
             master_pass,
         } => {
-            println!("Vault '{}' removed", vault_name);
+            let vault = Vault::new_from_file(vault_name).expect("Error trying to load the vault");
+            vault
+                .delete(master_pass.as_ref())
+                .expect("Error removing vault");
         }
         VaultCommands::List {
             vault_name,
             master_pass,
         } => {
             let vault = Vault::new_from_file(vault_name).expect("Error trying to load the vault");
-            let vault_key = vault
-                .derive_vault_key(master_pass.as_ref())
-                .expect("Error trying to encrypt master key");
-            let decryped_text = vault
-                .decrypt_data(&vault_key)
-                .expect("Error trying to open vault");
-
-            let plane_text = String::from_utf8(decryped_text).expect("Error trying to parse text");
-            println!("{}", &plane_text);
+            let list = serde_json::to_string_pretty(
+                &vault
+                    .list(master_pass.as_ref())
+                    .expect("Error trying to list vault"),
+            )
+            .expect("Error");
+            println!("{}", &list);
         }
     }
 }
@@ -58,25 +60,54 @@ fn handle_password(command: PasswordCommands) {
         } => {
             let mut vault =
                 Vault::new_from_file(vault_name).expect("Error trying to load the vault");
-            let vault_key = vault
-                .derive_vault_key(master_pass.as_ref())
-                .expect("Error trying to encrypt master key");
-            let decryped_text = vault
-                .decrypt_data(&vault_key)
-                .expect("Error trying to open vault");
-            let plane_text = String::from_utf8(decryped_text).expect("Error trying to parse text");
-            let new_text = format!("{}\r\n{name}:{username}:{password}", &plane_text);
+
+            let user_password = if password.to_lowercase() == "generate" {
+                let pg = PasswordGenerator {
+                    length: 15,
+                    numbers: true,
+                    lowercase_letters: true,
+                    uppercase_letters: true,
+                    symbols: true,
+                    spaces: false,
+                    exclude_similar_characters: false,
+                    strict: true,
+                };
+                pg.generate_one().expect("Error generating password")
+            } else {
+                password
+            };
+
+            let password_entry = PasswordEntry::new(&name, &username, &user_password);
+            println!("{:#?}", password_entry);
+
             vault
-                .encrypt_data(&vault_key, new_text.as_ref())
-                .expect("Error encrypting data");
-            vault.save_to_file().expect("Error saving to file")
+                .add_entry(master_pass.as_ref(), password_entry)
+                .expect("Failed to add entry");
         }
         PasswordCommands::Remove {
             vault_name,
             master_pass,
             name,
         } => {
-            println!("Removed password '{}' from vault '{}'", name, vault_name);
+            let mut vault =
+                Vault::new_from_file(vault_name).expect("Error trying to load the vault");
+            vault
+                .remove_entry(master_pass.as_ref(), &name)
+                .expect("Failed to remove entry");
+        }
+        PasswordCommands::Generate {} => {
+            let pg = PasswordGenerator {
+                length: 15,
+                numbers: true,
+                lowercase_letters: true,
+                uppercase_letters: true,
+                symbols: true,
+                spaces: false,
+                exclude_similar_characters: false,
+                strict: true,
+            };
+            let generated_pass = pg.generate_one().expect("Error generating password");
+            println!("{}", generated_pass);
         }
     }
 }

@@ -1,7 +1,6 @@
 mod cli;
 mod handlers;
 mod vault;
-use passwords::PasswordGenerator;
 use vault::Vault;
 
 // NOTE: take a master password and create a vault with that password
@@ -27,15 +26,4 @@ fn main() {
     //    strict: true,
     //};
     //let password = pg.generate_one().unwrap();
-    //println!("{password}");
-    //let mut vault = Vault::new("mamad");
-    //let vault_key = vault.derive_vault_key(password.as_ref()).unwrap();
-
-    //vault
-    //    .encrypt_data(&vault_key, b"some random text")
-    //    .expect("");
-    //let plaintext = vault.decrypt_data(&vault_key).unwrap();
-    //vault.save_to_file().unwrap();
-
-    //assert_eq!(&plaintext, b"some random text");
 }
