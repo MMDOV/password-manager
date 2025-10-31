@@ -176,6 +176,7 @@ impl Vault {
             .position(|entry| entry.name == name)
         {
             password_list.passwords.remove(index);
+
             self.encrypt_data(
                 &self.derive_vault_key(&master_password)?,
                 serde_json::to_string_pretty(&password_list)?.as_bytes(),

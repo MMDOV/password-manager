@@ -28,7 +28,7 @@ fn handle_vault(command: VaultCommands) {
             vault_name,
             master_pass,
         } => {
-            let vault = Vault::new_from_file(vault_name).expect("Error trying to load the vault");
+            let vault = Vault::new_from_file(vault_name).expect("Errcr trying to load the vault");
             vault
                 .delete(master_pass.as_ref())
                 .expect("Error removing vault");
